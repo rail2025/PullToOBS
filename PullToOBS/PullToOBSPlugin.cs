@@ -7,9 +7,9 @@ using Dalamud.Interface.ManagedFontAtlas;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
-using PullToOBS.Windows;
+using OBSToABB.Windows;
 
-namespace PullToOBS;
+namespace OBSToABB;
 
 public sealed class PullToOBSPlugin : IDalamudPlugin
 {
@@ -21,14 +21,14 @@ public sealed class PullToOBSPlugin : IDalamudPlugin
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
 
-    private const string CommandName = "/pulltoobs";
-    private const string CommandAlias = "/pto";
+    private const string CommandName = "/obstoabb";
+    private const string CommandAlias = "/ota";
 
     public PullToOBSConfiguration Configuration { get; private set; }
     public IOBSController ObsController { get; private set; }
     public EncounterManager EncounterManager { get; private set; }
 
-    public WindowSystem WindowSystem { get; } = new("PullToOBS");
+    public WindowSystem WindowSystem { get; } = new("OBSToABB");
     public PullToOBSConfigWindow ConfigWindow { get; private set; }
     private OBSStatusIndicator _indicator;
 
@@ -58,11 +58,11 @@ public sealed class PullToOBSPlugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open PullToOBS configuration window. Subcommands: obs (toggle connection), rec (toggle standby), show/hide (indicator)."
+            HelpMessage = "Open OBSToABB configuration window. Subcommands: obs (toggle connection), rec (toggle standby), show/hide (indicator)."
         });
         CommandManager.AddHandler(CommandAlias, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open PullToOBS configuration window (alias). Subcommands: obs (toggle connection), rec (toggle standby), show/hide (indicator)."
+            HelpMessage = "Open OBSToABB configuration window (alias). Subcommands: obs (toggle connection), rec (toggle standby), show/hide (indicator)."
         });
 
         PluginInterface.UiBuilder.Draw += DrawUi;
@@ -72,7 +72,7 @@ public sealed class PullToOBSPlugin : IDalamudPlugin
         if (Configuration.AutoConnectOnStart)
             _ = TryAutoConnectAsync();
 
-        Log.Information("===PullToOBS plugin loaded successfully===");
+        Log.Information("===OBSToABB plugin loaded successfully===");
     }
 
     private void OnCommand(string command, string args)
@@ -97,7 +97,7 @@ public sealed class PullToOBSPlugin : IDalamudPlugin
         {
             EncounterManager.IsStandby = !EncounterManager.IsStandby;
             var state = EncounterManager.IsStandby ? "ON - recording suppressed" : "OFF - recording enabled";
-            ChatGui.Print($"[PullToOBS] Standby mode: {state}");
+            ChatGui.Print($"[OBSToABB] Standby mode: {state}");
         }
         else
         {
@@ -144,18 +144,18 @@ public sealed class PullToOBSPlugin : IDalamudPlugin
         if (ObsController.IsConnected)
         {
             ObsController.Disconnect();
-            ChatGui.Print("[PullToOBS] Disconnected from OBS");
+            ChatGui.Print("[OBSToABB] Disconnected from OBS");
         }
         else
         {
             try
             {
                 await ObsController.ConnectAsync(Configuration.ObsWebSocketUrl, Configuration.ObsPassword);
-                ChatGui.Print("[PullToOBS] Connected to OBS");
+                ChatGui.Print("[OBSToABB] Connected to OBS");
             }
             catch (Exception ex)
             {
-                ChatGui.Print($"[PullToOBS] Failed to connect to OBS: {ex.Message}");
+                ChatGui.Print($"[OBSToABB] Failed to connect to OBS: {ex.Message}");
             }
         }
     }
@@ -197,13 +197,13 @@ public sealed class PullToOBSPlugin : IDalamudPlugin
     private void OnOBSError(string message)
     {
         Log.Error($"OBS Error: {message}");
-        ChatGui.Print($"[PullToOBS] Error: {message}");
+        ChatGui.Print($"[OBSToABB] Error: {message}");
     }
 
     private void OnEncounterError(string message)
     {
         Log.Error($"Encounter Error: {message}");
-        ChatGui.Print($"[PullToOBS] Error: {message}");
+        ChatGui.Print($"[OBSToABB] Error: {message}");
     }
 
     public void Dispose()

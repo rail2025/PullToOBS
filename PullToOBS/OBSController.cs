@@ -1,12 +1,13 @@
-using System;
-using System.Timers;
-using System.Threading;
-using System.Threading.Tasks;
 using Dalamud.Plugin.Services;
 using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Communication;
+using OBSWebsocketDotNet.Types.Events;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Timers;
 
-namespace PullToOBS;
+namespace OBSToABB;
 
 public class OBSController : IOBSController
 {
@@ -25,6 +26,7 @@ public class OBSController : IOBSController
     private volatile bool _isRecording;
     private volatile bool _isReplayBufferActive;
     private volatile bool _isReplayBufferConfigured;
+    private long _recordingStartTimeMs;
 
     public bool IsConnected => _obs.IsConnected;
     public bool IsRecording => _isRecording;
@@ -35,6 +37,7 @@ public class OBSController : IOBSController
     public event Action? RecordingStateChanged;
     public event Action? ReplayBufferStateChanged;
     public event Action<string>? ErrorOccurred;
+    public event Action<long, string>? RecordingCompleted;
 
     public OBSController(IPluginLog log)
     {
@@ -42,6 +45,45 @@ public class OBSController : IOBSController
         _obs = new OBSWebsocket();
         _obs.Connected += OnConnected;
         _obs.Disconnected += OnDisconnected;
+        _obs.RecordStateChanged += OnRecordStateChanged;
+    }
+
+    private void OnRecordStateChanged(object? sender, RecordStateChangedEventArgs e)
+    {
+        var state = e.OutputState.ToString();
+        if (state.Contains("Stopped", StringComparison.OrdinalIgnoreCase) || state.Contains("OBS_WEBSOCKET_OUTPUT_STOPPED", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                string recordDir = _obs.GetRecordDirectory();
+                if (System.IO.Directory.Exists(recordDir))
+                {
+                    var dirInfo = new System.IO.DirectoryInfo(recordDir);
+                    var files = dirInfo.GetFiles("*.*", System.IO.SearchOption.TopDirectoryOnly);
+                    System.IO.FileInfo? latestFile = null;
+
+                    foreach (var f in files)
+                    {
+                        if (f.Extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase) || f.Extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (latestFile == null || f.LastWriteTime > latestFile.LastWriteTime)
+                            {
+                                latestFile = f;
+                            }
+                        }
+                    }
+
+                    if (latestFile != null)
+                    {
+                        RecordingCompleted?.Invoke(_recordingStartTimeMs, latestFile.FullName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"[OBS] Failed to get recording path: {ex.Message}");
+            }
+        }
     }
 
     public async Task ConnectAsync(string url, string password)
@@ -236,6 +278,7 @@ public class OBSController : IOBSController
             {
                 _obs.StartRecord();
                 _isRecording = true;
+                _recordingStartTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 RecordingStateChanged?.Invoke();
             });
     }
@@ -341,6 +384,7 @@ public class OBSController : IOBSController
 
         _obs.Connected -= OnConnected;
         _obs.Disconnected -= OnDisconnected;
+        _obs.RecordStateChanged -= OnRecordStateChanged;
 
         if (_obs.IsConnected)
             _obs.Disconnect();

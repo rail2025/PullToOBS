@@ -1,0 +1,15 @@
+{
+  "Author": "rail2025",
+  "Name": "OBSToABB",
+  "Punchline": "Automated OBS recording manager for FFXIV encounters.",
+  "Description": "A Dalamud plugin that automatically controls OBS recording during FFXIV encounters. Captures replay buffer before pulls and full encounter recordings via OBS WebSocket v5. Use /obstoabb or /ota to configure.",
+  "ApplicableVersion": "any",
+  "RepoUrl":"", 
+  "IconUrl":"",
+  "Tags": [
+    "obs",
+    "recording",
+    "encounter",
+    "automation"
+  ]
+}

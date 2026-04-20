@@ -3,7 +3,7 @@ using System.Threading;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
 
-namespace PullToOBS;
+namespace OBSToABB;
 
 public class EncounterManager : IDisposable
 {
@@ -46,18 +46,26 @@ public class EncounterManager : IDisposable
     /// </summary>
     private System.Timers.Timer? _replayBufferTimer;
 
+    private long _combatStartTimeMs;
     public bool IsInCombat => _isInCombat;
 
     public event Action? EncounterStarted;
     public event Action? EncounterEnded;
     public event Action<string>? ErrorOccurred;
     public event Action? StateChanged;
+    public event Action<long, long, string>? SyncDataBroadcast;
 
     public EncounterManager(IOBSController obs, ICondition condition, IPluginLog log)
     {
         _obs = obs;
         _condition = condition;
         _log = log;
+        _obs.RecordingCompleted += OnRecordingCompleted;
+    }
+
+    private void OnRecordingCompleted(long recStartTimeMs, string filePath)
+    {
+        SyncDataBroadcast?.Invoke(_combatStartTimeMs, recStartTimeMs, filePath);
     }
 
     /// <summary>
@@ -93,6 +101,7 @@ public class EncounterManager : IDisposable
                 // Entering combat - cancel any pending stop
                 CancelGracePeriodTimer();
                 shouldStart = true;
+                _combatStartTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 _log.Debug("[Encounter] Entering combat, will start encounter");
             }
             else
@@ -336,6 +345,7 @@ public class EncounterManager : IDisposable
             if (_isDisposed) return;
             _isDisposed = true;
 
+            _obs.RecordingCompleted -= OnRecordingCompleted;
             CancelGracePeriodTimer();
             CancelReplayBufferTimer();
         }

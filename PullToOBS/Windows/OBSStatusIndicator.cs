@@ -6,7 +6,7 @@ using Dalamud.Interface.ManagedFontAtlas;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
 
-namespace PullToOBS.Windows;
+namespace OBSToABB.Windows;
 
 public class OBSStatusIndicator : Window, IDisposable
 {

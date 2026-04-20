@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/14.0.1">
   <PropertyGroup>
-    <RootNamespace>PullToOBS</RootNamespace>
+    <RootNamespace>OBStoABB</RootNamespace>
   </PropertyGroup>
   <PropertyGroup>
     <Version>0.3.0.0</Version>
-    <PackageProjectUrl>https://github.com/Miu-B/PullToOBS</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/Miu-B/OBSToABB</PackageProjectUrl>
     <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
@@ -28,7 +28,7 @@
 
   <ItemGroup>
     <Content
-        Include="PullToOBS.png"
+        Include="OBSToABB.png"
         Link="images/icon.png"
         CopyToOutputDirectory="PreserveNewest"
         Visible="false"

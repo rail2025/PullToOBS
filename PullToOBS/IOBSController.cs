@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace PullToOBS;
+namespace OBSToABB;
 
 public interface IOBSController : IDisposable
 {
@@ -14,6 +14,8 @@ public interface IOBSController : IDisposable
     event Action? RecordingStateChanged;
     event Action? ReplayBufferStateChanged;
     event Action<string>? ErrorOccurred;
+
+    event Action<long, string>? RecordingCompleted;
 
     Task ConnectAsync(string url, string password);
     void Disconnect();

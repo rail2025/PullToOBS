@@ -2,7 +2,7 @@ using System;
 using System.Numerics;
 using Dalamud.Configuration;
 
-namespace PullToOBS;
+namespace OBSToABB;
 
 [Serializable]
 public class PullToOBSConfiguration : IPluginConfiguration

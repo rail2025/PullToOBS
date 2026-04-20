@@ -5,7 +5,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
 
-namespace PullToOBS.Windows;
+namespace OBSToABB.Windows;
 
 public class PullToOBSConfigWindow : Window, IDisposable
 {
@@ -19,7 +19,7 @@ public class PullToOBSConfigWindow : Window, IDisposable
     private string _statusMessage = "";
     private Vector4 _statusColor = new Vector4(0.5f, 0.5f, 0.5f, 1.0f);
 
-    public PullToOBSConfigWindow(PullToOBSPlugin plugin, IChatGui chatGui) : base("PullToOBS Configuration")
+    public PullToOBSConfigWindow(PullToOBSPlugin plugin, IChatGui chatGui) : base("OBSToABB Configuration")
     {
         _plugin = plugin;
         _configuration = plugin.Configuration;
@@ -201,7 +201,7 @@ public class PullToOBSConfigWindow : Window, IDisposable
         {
             // Disconnect
             obs.Disconnect();
-            _chatGui.Print("[PullToOBS] Disconnected from OBS");
+            _chatGui.Print("[OBSToABB] Disconnected from OBS");
         }
         else
         {
@@ -211,11 +211,11 @@ public class PullToOBSConfigWindow : Window, IDisposable
             try
             {
                 await obs.ConnectAsync(_configuration.ObsWebSocketUrl, _configuration.ObsPassword);
-                _chatGui.Print("[PullToOBS] Connected to OBS");
+                _chatGui.Print("[OBSToABB] Connected to OBS");
             }
             catch (Exception ex)
             {
-                _chatGui.Print($"[PullToOBS] Failed to connect to OBS: {ex.Message}");
+                _chatGui.Print($"[OBSToABB] Failed to connect to OBS: {ex.Message}");
             }
             finally
             {

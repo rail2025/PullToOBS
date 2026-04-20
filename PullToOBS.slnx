@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="PullToOBS/PullToOBS.csproj" />
-  <Project Path="PullToOBS.Tests/PullToOBS.Tests.csproj" />
-</Solution>
