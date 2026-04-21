@@ -2,6 +2,7 @@ testing/
 DalamudPluginsD17
 bin/
 obj/
+.vs/
 
 # Local symlinks to sibling repos
 IINACT
