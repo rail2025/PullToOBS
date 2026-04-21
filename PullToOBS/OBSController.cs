@@ -3,6 +3,7 @@ using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Communication;
 using OBSWebsocketDotNet.Types.Events;
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
@@ -75,7 +76,34 @@ public class OBSController : IOBSController
 
                     if (latestFile != null)
                     {
-                        RecordingCompleted?.Invoke(_recordingStartTimeMs, latestFile.FullName);
+                        var recentFiles = files.OrderByDescending(f => f.LastWriteTime).Take(2).ToList();
+                        if (recentFiles.Count == 2 && recentFiles[1].Name.Contains("Replay", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var recordFile = recentFiles[0].FullName;
+                            var bufferFile = recentFiles[1].FullName;
+                            var outputFile = System.IO.Path.Combine(recordDir, $"Stitched_{DateTime.Now:yyyyMMdd_HHmmss}{recentFiles[0].Extension}");
+
+                            string listFile = System.IO.Path.Combine(recordDir, "concat.txt");
+                            System.IO.File.WriteAllText(listFile, $"file '{bufferFile}'\nfile '{recordFile}'");
+
+                            var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = "ffmpeg",
+                                Arguments = $"-f concat -safe 0 -i \"{listFile}\" -c copy \"{outputFile}\"",
+                                CreateNoWindow = true,
+                                UseShellExecute = false
+                            });
+                            process?.WaitForExit();
+                            System.IO.File.Delete(listFile);
+                            System.IO.File.Delete(recordFile);
+                            System.IO.File.Delete(bufferFile);
+
+                            RecordingCompleted?.Invoke(_recordingStartTimeMs, outputFile);
+                        }
+                        else
+                        {
+                            RecordingCompleted?.Invoke(_recordingStartTimeMs, latestFile.FullName);
+                        }
                     }
                 }
             }

@@ -41,11 +41,7 @@ public class EncounterManager : IDisposable
     /// </summary>
     private System.Timers.Timer? _gracePeriodTimer;
 
-    /// <summary>
-    /// Kernel-backed timer for the replay buffer save delay after starting recording.
-    /// </summary>
     private System.Timers.Timer? _replayBufferTimer;
-
     private long _combatStartTimeMs;
     public bool IsInCombat => _isInCombat;
 
@@ -129,8 +125,6 @@ public class EncounterManager : IDisposable
     {
         lock (_lock)
         {
-            CancelReplayBufferTimer();
-
             if (_weStartedRecording)
             {
                 _log.Debug("[Encounter] HandleEncounterStart: already in a recording session we started, skipping");
@@ -172,8 +166,8 @@ public class EncounterManager : IDisposable
                     _weStartedRecording = true;
                 }
 
-                // Schedule replay buffer save via a kernel-backed timer.
                 ScheduleReplayBufferSave();
+                EncounterStarted?.Invoke();
             }
             catch (Exception ex)
             {
@@ -183,54 +177,28 @@ public class EncounterManager : IDisposable
         });
     }
 
-    /// <summary>
-    /// Schedules a replay buffer save after <see cref="ReplayBufferSaveDelay"/>.
-    /// Uses a kernel-backed timer to avoid thread pool scheduling delays.
-    /// </summary>
+
     private void ScheduleReplayBufferSave()
     {
         lock (_lock)
         {
             if (_isDisposed) return;
-
             CancelReplayBufferTimer();
-
-            var timer = new System.Timers.Timer(ReplayBufferSaveDelay.TotalMilliseconds);
-            timer.AutoReset = false;
-            timer.Elapsed += OnReplayBufferTimerElapsed;
-            _replayBufferTimer = timer;
-            timer.Start();
-
-            _log.Debug("[Encounter] HandleEncounterStart: scheduled replay buffer save");
+            _replayBufferTimer = new System.Timers.Timer(ReplayBufferSaveDelay.TotalMilliseconds) { AutoReset = false };
+            _replayBufferTimer.Elapsed += (s, e) => {
+                if (_obs.IsConnected && _obs.IsRecording && _obs.IsReplayBufferConfigured) _obs.SaveReplayBuffer();
+            };
+            _replayBufferTimer.Start();
         }
     }
 
-    /// <summary>
-    /// Fires when the replay buffer save delay has elapsed.
-    /// Runs on a thread pool thread (fired by the kernel timer), then saves the replay buffer.
-    /// </summary>
-    private void OnReplayBufferTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+    private void CancelReplayBufferTimer()
     {
-        lock (_lock)
+        if (_replayBufferTimer != null)
         {
-            if (_isDisposed) return;
-        }
-
-        try
-        {
-            if (_obs.IsConnected && _obs.IsRecording && _obs.IsReplayBufferConfigured)
-            {
-                _log.Debug("[Encounter] HandleEncounterStart: calling SaveReplayBuffer");
-                _obs.SaveReplayBuffer();
-                _log.Debug("[Encounter] HandleEncounterStart: SaveReplayBuffer called successfully");
-            }
-
-            EncounterStarted?.Invoke();
-        }
-        catch (Exception ex)
-        {
-            _log.Error($"[Encounter] SaveReplayBuffer exception: {ex}");
-            ErrorOccurred?.Invoke($"Error saving replay buffer: {ex.Message}");
+            _replayBufferTimer.Stop();
+            _replayBufferTimer.Dispose();
+            _replayBufferTimer = null;
         }
     }
 
@@ -326,18 +294,6 @@ public class EncounterManager : IDisposable
         }
     }
 
-    /// <summary>Cancels and disposes the replay buffer timer if active. Must be called under lock.</summary>
-    private void CancelReplayBufferTimer()
-    {
-        if (_replayBufferTimer != null)
-        {
-            _replayBufferTimer.Stop();
-            _replayBufferTimer.Elapsed -= OnReplayBufferTimerElapsed;
-            _replayBufferTimer.Dispose();
-            _replayBufferTimer = null;
-        }
-    }
-
     public void Dispose()
     {
         lock (_lock)
@@ -347,7 +303,6 @@ public class EncounterManager : IDisposable
 
             _obs.RecordingCompleted -= OnRecordingCompleted;
             CancelGracePeriodTimer();
-            CancelReplayBufferTimer();
         }
     }
 }
