@@ -94,6 +94,9 @@ public class EncounterManager : IDisposable
             }
             else if (inCombat)
             {
+                // If we just loaded mid-combat, ensure we claim the session
+                if (!_isInCombat && _obs.IsRecording)
+                    _weStartedRecording = true;
                 // Entering combat - cancel any pending stop
                 CancelGracePeriodTimer();
                 shouldStart = true;

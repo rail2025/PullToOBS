@@ -1,6 +1,7 @@
 using Dalamud.Plugin.Services;
 using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Communication;
+using OBSWebsocketDotNet.Types;
 using OBSWebsocketDotNet.Types.Events;
 using System;
 using System.Linq;
@@ -51,8 +52,24 @@ public class OBSController : IOBSController
 
     private void OnRecordStateChanged(object? sender, RecordStateChangedEventArgs e)
     {
-        var state = e.OutputState.ToString();
-        if (state.Contains("Stopped", StringComparison.OrdinalIgnoreCase) || state.Contains("OBS_WEBSOCKET_OUTPUT_STOPPED", StringComparison.OrdinalIgnoreCase))
+        string stateStr = "";
+        try
+        {
+            // Dynamically extract all properties and their values into a single text string
+            var props = e.OutputState.GetType().GetProperties();
+            var propStrings = System.Linq.Enumerable.Select(props, p => $"{p.Name}={p.GetValue(e.OutputState)}");
+            stateStr = string.Join(", ", propStrings);
+        }
+        catch { }
+
+        _log.Debug($"[OBS] RecordStateChanged evaluated properties: '{stateStr}'");
+
+        // Temporarily check if the string contains any typical "stopped" keywords
+        // including checking if an "IsActive" flag turned "False"
+        if (stateStr.Contains("Stopped", StringComparison.OrdinalIgnoreCase) ||
+            stateStr.Contains("OBS_WEBSOCKET_OUTPUT_STOPPED", StringComparison.OrdinalIgnoreCase) ||
+            stateStr.Contains("Idle", StringComparison.OrdinalIgnoreCase) ||
+            stateStr.Contains("False", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
@@ -84,21 +101,60 @@ public class OBSController : IOBSController
                             var outputFile = System.IO.Path.Combine(recordDir, $"Stitched_{DateTime.Now:yyyyMMdd_HHmmss}{recentFiles[0].Extension}");
 
                             string listFile = System.IO.Path.Combine(recordDir, "concat.txt");
-                            System.IO.File.WriteAllText(listFile, $"file '{bufferFile}'\nfile '{recordFile}'");
+                            System.IO.File.WriteAllText(listFile, $"file '{bufferFile.Replace("\\", "/")}'\nfile '{recordFile.Replace("\\", "/")}'");
 
-                            var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            long currentRecStartMs = _recordingStartTimeMs;
+
+                            // Offload to background task to prevent blocking OBS communication/UI
+                            Task.Run(async () =>
                             {
-                                FileName = "ffmpeg",
-                                Arguments = $"-f concat -safe 0 -i \"{listFile}\" -c copy \"{outputFile}\"",
-                                CreateNoWindow = true,
-                                UseShellExecute = false
-                            });
-                            process?.WaitForExit();
-                            System.IO.File.Delete(listFile);
-                            System.IO.File.Delete(recordFile);
-                            System.IO.File.Delete(bufferFile);
+                                // Race Condition Mitigation: Wait for OBS to release file locks
+                                await Task.Delay(1000);
 
-                            RecordingCompleted?.Invoke(_recordingStartTimeMs, outputFile);
+                                try
+                                {
+                                    _log.Debug($"[OBS] Starting FFmpeg stitch: {outputFile}");
+
+                                    var psi = new System.Diagnostics.ProcessStartInfo
+                                    {
+                                        FileName = "ffmpeg",
+                                        Arguments = $"-f concat -safe 0 -i \"{listFile}\" -c copy \"{outputFile}\"",
+                                        CreateNoWindow = true,
+                                        UseShellExecute = false,
+                                        RedirectStandardOutput = true,
+                                        RedirectStandardError = true
+                                    };
+
+                                    using var process = System.Diagnostics.Process.Start(psi);
+                                    if (process != null)
+                                    {
+                                        // Capture logs from the FFmpeg process (FFmpeg logs to Error stream by default)
+                                        string stdout = await process.StandardOutput.ReadToEndAsync();
+                                        string stderr = await process.StandardError.ReadToEndAsync();
+
+                                        await process.WaitForExitAsync();
+
+                                        if (process.ExitCode == 0)
+                                        {
+                                            _log.Information("[OBS] FFmpeg stitch successful.");
+                                            System.IO.File.Delete(listFile);
+                                            System.IO.File.Delete(recordFile);
+                                            System.IO.File.Delete(bufferFile);
+                                            RecordingCompleted?.Invoke(currentRecStartMs, outputFile);
+                                        }
+                                        else
+                                        {
+                                            _log.Error($"[OBS] FFmpeg failed with exit code {process.ExitCode}");
+                                            _log.Error($"[OBS] FFmpeg Output: {stdout}");
+                                            _log.Error($"[OBS] FFmpeg Error: {stderr}");
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _log.Error($"[OBS] Stitching process exception: {ex.Message}");
+                                }
+                            });
                         }
                         else
                         {
@@ -304,7 +360,14 @@ public class OBSController : IOBSController
             "StartRecording",
             () =>
             {
-                _obs.StartRecord();
+                try
+                {
+                    _obs.StartRecord();
+                }
+                catch (Exception ex) when (IsAlreadyRunningError(ex))
+                {
+                    _log.Debug("[OBS] StartRecording: recording was already running (500), treating as success");
+                }
                 _isRecording = true;
                 _recordingStartTimeMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 RecordingStateChanged?.Invoke();
