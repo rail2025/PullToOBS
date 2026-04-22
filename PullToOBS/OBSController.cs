@@ -64,8 +64,6 @@ public class OBSController : IOBSController
 
         _log.Debug($"[OBS] RecordStateChanged evaluated properties: '{stateStr}'");
 
-        // Temporarily check if the string contains any typical "stopped" keywords
-        // including checking if an "IsActive" flag turned "False"
         if (stateStr.Contains("Stopped", StringComparison.OrdinalIgnoreCase) ||
             stateStr.Contains("OBS_WEBSOCKET_OUTPUT_STOPPED", StringComparison.OrdinalIgnoreCase) ||
             stateStr.Contains("Idle", StringComparison.OrdinalIgnoreCase) ||
@@ -105,7 +103,6 @@ public class OBSController : IOBSController
 
                             long currentRecStartMs = _recordingStartTimeMs;
 
-                            // Offload to background task to prevent blocking OBS communication/UI
                             Task.Run(async () =>
                             {
                                 // Race Condition Mitigation: Wait for OBS to release file locks
