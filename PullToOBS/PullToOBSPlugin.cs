@@ -42,7 +42,7 @@ public sealed class PullToOBSPlugin : IDalamudPlugin
         Configuration = PluginInterface.GetPluginConfig() as PullToOBSConfiguration ?? new PullToOBSConfiguration();
         Configuration.SetSaveAction(PluginInterface.SavePluginConfig);
 
-        ObsController = new OBSController(Log);
+        ObsController = new OBSController(Log, PluginInterface);
         EncounterManager = new EncounterManager(ObsController, Condition, Log);
 
         ObsController.ErrorOccurred += OnOBSError;

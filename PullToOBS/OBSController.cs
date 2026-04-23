@@ -41,10 +41,21 @@ public class OBSController : IOBSController
     public event Action<string>? ErrorOccurred;
     public event Action<long, string>? RecordingCompleted;
 
-    public OBSController(IPluginLog log)
+    private Dalamud.Plugin.Ipc.ICallGateSubscriber<string>? pullMetadataIpcSubscriber;
+
+    public OBSController(IPluginLog log, Dalamud.Plugin.IDalamudPluginInterface pluginInterface)
     {
         _log = log;
         _obs = new OBSWebsocket();
+
+        try
+        {
+            pullMetadataIpcSubscriber = pluginInterface.GetIpcSubscriber<string>("AetherBlackbox.GetLastPullMetadata");
+        }
+        catch (System.Exception ex)
+        {
+            _log.Error(ex, "Failed to register IPC subscriber.");
+        }
         _obs.Connected += OnConnected;
         _obs.Disconnected += OnDisconnected;
         _obs.RecordStateChanged += OnRecordStateChanged;
@@ -96,7 +107,39 @@ public class OBSController : IOBSController
                         {
                             var recordFile = recentFiles[0].FullName;
                             var bufferFile = recentFiles[1].FullName;
-                            var outputFile = System.IO.Path.Combine(recordDir, $"Stitched_{DateTime.Now:yyyyMMdd_HHmmss}{recentFiles[0].Extension}");
+
+                            string outputFileName = $"Stitched_{DateTime.Now:yyyyMMdd_HHmmss}";
+                            try
+                            {
+                                if (pullMetadataIpcSubscriber != null)
+                                {
+                                    string metadataJson = pullMetadataIpcSubscriber.InvokeFunc();
+                                    if (!string.IsNullOrWhiteSpace(metadataJson) && metadataJson != "[]")
+                                    {
+                                        dynamic metadataArray = Newtonsoft.Json.JsonConvert.DeserializeObject(metadataJson);
+                                        if (metadataArray != null && metadataArray.Count > 0)
+                                        {
+                                            var metadata = metadataArray[0];
+                                            string zone = metadata.ZoneName ?? "Unknown";
+                                            string boss = metadata.BossName ?? "Unknown";
+                                            string hp = metadata.LowestHpPercent?.ToString() ?? "0";
+
+                                            var invalidChars = System.IO.Path.GetInvalidFileNameChars();
+                                            var cleanZone = new string(System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(zone, c => System.Linq.Enumerable.Contains(invalidChars, c) ? '_' : c)));
+                                            var cleanBoss = new string(System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(boss, c => System.Linq.Enumerable.Contains(invalidChars, c) ? '_' : c)));
+                                            var recStart = DateTimeOffset.FromUnixTimeMilliseconds(_recordingStartTimeMs).ToLocalTime().DateTime;
+
+                                            outputFileName = $"{recStart:yyyy-MM-dd_HH-mm-ss}_{cleanZone}_{cleanBoss}_{hp}pc";
+                                        }
+                                    }
+                                }
+                            }
+                            catch (System.Exception ex)
+                            {
+                                _log.Warning(ex, "Failed to retrieve or parse pull metadata via IPC.");
+                            }
+
+                            var outputFile = System.IO.Path.Combine(recordDir, $"{outputFileName}{recentFiles[0].Extension}");
 
                             string listFile = System.IO.Path.Combine(recordDir, "concat.txt");
                             System.IO.File.WriteAllText(listFile, $"file '{bufferFile.Replace("\\", "/")}'\nfile '{recordFile.Replace("\\", "/")}'");
