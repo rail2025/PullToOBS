@@ -42,6 +42,7 @@ public class OBSController : IOBSController
     public event Action<long, string>? RecordingCompleted;
 
     private Dalamud.Plugin.Ipc.ICallGateSubscriber<string>? pullMetadataIpcSubscriber;
+    private string? _lastReplayPath;
 
     public OBSController(IPluginLog log, Dalamud.Plugin.IDalamudPluginInterface pluginInterface)
     {
@@ -58,156 +59,110 @@ public class OBSController : IOBSController
         }
         _obs.Connected += OnConnected;
         _obs.Disconnected += OnDisconnected;
-        _obs.RecordStateChanged += OnRecordStateChanged;
+        _obs.ReplayBufferSaved += OnReplayBufferSaved;
     }
 
-    private void OnRecordStateChanged(object? sender, RecordStateChangedEventArgs e)
+    private void OnReplayBufferSaved(object? sender, ReplayBufferSavedEventArgs e)
     {
-        string stateStr = "";
+        _lastReplayPath = e.SavedReplayPath;
+        _log.Debug($"[OBS] Replay buffer saved to: {_lastReplayPath}");
+    }
+
+    private string NormalizePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        if (System.IO.Path.IsPathRooted(path)) return path;
+        try { return System.IO.Path.Combine(_obs.GetRecordDirectory(), path); } catch { return path; }
+    }
+
+    private void StitchRecordings(string recordFile, string bufferFile)
+    {
+        recordFile = NormalizePath(recordFile);
+        bufferFile = NormalizePath(bufferFile);
+        string recordDir = System.IO.Path.GetDirectoryName(recordFile) ?? string.Empty;
+        string outputFileName = $"Stitched_{DateTime.Now:yyyyMMdd_HHmmss}";
+
         try
         {
-            // Dynamically extract all properties and their values into a single text string
-            var props = e.OutputState.GetType().GetProperties();
-            var propStrings = System.Linq.Enumerable.Select(props, p => $"{p.Name}={p.GetValue(e.OutputState)}");
-            stateStr = string.Join(", ", propStrings);
+            if (pullMetadataIpcSubscriber != null)
+            {
+                string metadataJson = pullMetadataIpcSubscriber.InvokeFunc();
+                if (!string.IsNullOrWhiteSpace(metadataJson) && metadataJson != "[]")
+                {
+                    dynamic metadataArray = Newtonsoft.Json.JsonConvert.DeserializeObject(metadataJson);
+                    if (metadataArray != null && metadataArray.Count > 0)
+                    {
+                        var metadata = metadataArray[0];
+                        string zone = metadata.ZoneName ?? "Unknown";
+                        string boss = metadata.BossName ?? "Unknown";
+                        string hp = metadata.LowestHpPercent?.ToString() ?? "0";
+
+                        var invalidChars = System.IO.Path.GetInvalidFileNameChars();
+                        var cleanZone = new string(System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(zone, c => System.Linq.Enumerable.Contains(invalidChars, c) ? '_' : c)));
+                        var cleanBoss = new string(System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(boss, c => System.Linq.Enumerable.Contains(invalidChars, c) ? '_' : c)));
+                        var recStart = DateTimeOffset.FromUnixTimeMilliseconds(_recordingStartTimeMs).ToLocalTime().DateTime;
+
+                        outputFileName = $"{recStart:yyyy-MM-dd_HH-mm-ss}_{cleanZone}_{cleanBoss}_{hp}pc";
+                    }
+                }
+            }
         }
-        catch { }
-
-        _log.Debug($"[OBS] RecordStateChanged evaluated properties: '{stateStr}'");
-
-        if (stateStr.Contains("Stopped", StringComparison.OrdinalIgnoreCase) ||
-            stateStr.Contains("OBS_WEBSOCKET_OUTPUT_STOPPED", StringComparison.OrdinalIgnoreCase) ||
-            stateStr.Contains("Idle", StringComparison.OrdinalIgnoreCase) ||
-            stateStr.Contains("False", StringComparison.OrdinalIgnoreCase))
+        catch (System.Exception ex)
         {
+            _log.Warning(ex, "Failed to retrieve or parse pull metadata via IPC.");
+        }
+
+        var outputFile = System.IO.Path.Combine(recordDir, $"{outputFileName}{System.IO.Path.GetExtension(recordFile)}");
+        string listFile = System.IO.Path.Combine(recordDir, $"concat_{Guid.NewGuid():N}.txt");
+        System.IO.File.WriteAllText(listFile, $"file '{bufferFile.Replace("\\", "/")}'\nfile '{recordFile.Replace("\\", "/")}'");
+
+        long currentRecStartMs = _recordingStartTimeMs;
+
+        Task.Run(async () =>
+        {
+            await Task.Delay(1000); // Race Condition Mitigation: Wait for OBS to release file locks
+
             try
             {
-                string recordDir = _obs.GetRecordDirectory();
-                if (System.IO.Directory.Exists(recordDir))
+                _log.Debug($"[OBS] Starting FFmpeg stitch: {outputFile}");
+                var psi = new System.Diagnostics.ProcessStartInfo
                 {
-                    var dirInfo = new System.IO.DirectoryInfo(recordDir);
-                    var files = dirInfo.GetFiles("*.*", System.IO.SearchOption.TopDirectoryOnly);
-                    System.IO.FileInfo? latestFile = null;
+                    FileName = "ffmpeg",
+                    Arguments = $"-f concat -safe 0 -i \"{listFile}\" -c copy \"{outputFile}\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
 
-                    foreach (var f in files)
+                using var process = System.Diagnostics.Process.Start(psi);
+                if (process != null)
+                {
+                    string stdout = await process.StandardOutput.ReadToEndAsync();
+                    string stderr = await process.StandardError.ReadToEndAsync();
+                    await process.WaitForExitAsync();
+
+                    if (process.ExitCode == 0)
                     {
-                        if (f.Extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase) || f.Extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase))
-                        {
-                            if (latestFile == null || f.LastWriteTime > latestFile.LastWriteTime)
-                            {
-                                latestFile = f;
-                            }
-                        }
+                        _log.Information("[OBS] FFmpeg stitch successful.");
+                        System.IO.File.Delete(listFile);
+                        System.IO.File.Delete(recordFile);
+                        System.IO.File.Delete(bufferFile);
+                        RecordingCompleted?.Invoke(currentRecStartMs, outputFile);
                     }
-
-                    if (latestFile != null)
+                    else
                     {
-                        var recentFiles = files.OrderByDescending(f => f.LastWriteTime).Take(2).ToList();
-                        if (recentFiles.Count == 2 && recentFiles[1].Name.Contains("Replay", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var recordFile = recentFiles[0].FullName;
-                            var bufferFile = recentFiles[1].FullName;
-
-                            string outputFileName = $"Stitched_{DateTime.Now:yyyyMMdd_HHmmss}";
-                            try
-                            {
-                                if (pullMetadataIpcSubscriber != null)
-                                {
-                                    string metadataJson = pullMetadataIpcSubscriber.InvokeFunc();
-                                    if (!string.IsNullOrWhiteSpace(metadataJson) && metadataJson != "[]")
-                                    {
-                                        dynamic metadataArray = Newtonsoft.Json.JsonConvert.DeserializeObject(metadataJson);
-                                        if (metadataArray != null && metadataArray.Count > 0)
-                                        {
-                                            var metadata = metadataArray[0];
-                                            string zone = metadata.ZoneName ?? "Unknown";
-                                            string boss = metadata.BossName ?? "Unknown";
-                                            string hp = metadata.LowestHpPercent?.ToString() ?? "0";
-
-                                            var invalidChars = System.IO.Path.GetInvalidFileNameChars();
-                                            var cleanZone = new string(System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(zone, c => System.Linq.Enumerable.Contains(invalidChars, c) ? '_' : c)));
-                                            var cleanBoss = new string(System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(boss, c => System.Linq.Enumerable.Contains(invalidChars, c) ? '_' : c)));
-                                            var recStart = DateTimeOffset.FromUnixTimeMilliseconds(_recordingStartTimeMs).ToLocalTime().DateTime;
-
-                                            outputFileName = $"{recStart:yyyy-MM-dd_HH-mm-ss}_{cleanZone}_{cleanBoss}_{hp}pc";
-                                        }
-                                    }
-                                }
-                            }
-                            catch (System.Exception ex)
-                            {
-                                _log.Warning(ex, "Failed to retrieve or parse pull metadata via IPC.");
-                            }
-
-                            var outputFile = System.IO.Path.Combine(recordDir, $"{outputFileName}{recentFiles[0].Extension}");
-
-                            string listFile = System.IO.Path.Combine(recordDir, "concat.txt");
-                            System.IO.File.WriteAllText(listFile, $"file '{bufferFile.Replace("\\", "/")}'\nfile '{recordFile.Replace("\\", "/")}'");
-
-                            long currentRecStartMs = _recordingStartTimeMs;
-
-                            Task.Run(async () =>
-                            {
-                                // Race Condition Mitigation: Wait for OBS to release file locks
-                                await Task.Delay(1000);
-
-                                try
-                                {
-                                    _log.Debug($"[OBS] Starting FFmpeg stitch: {outputFile}");
-
-                                    var psi = new System.Diagnostics.ProcessStartInfo
-                                    {
-                                        FileName = "ffmpeg",
-                                        Arguments = $"-f concat -safe 0 -i \"{listFile}\" -c copy \"{outputFile}\"",
-                                        CreateNoWindow = true,
-                                        UseShellExecute = false,
-                                        RedirectStandardOutput = true,
-                                        RedirectStandardError = true
-                                    };
-
-                                    using var process = System.Diagnostics.Process.Start(psi);
-                                    if (process != null)
-                                    {
-                                        // Capture logs from the FFmpeg process (FFmpeg logs to Error stream by default)
-                                        string stdout = await process.StandardOutput.ReadToEndAsync();
-                                        string stderr = await process.StandardError.ReadToEndAsync();
-
-                                        await process.WaitForExitAsync();
-
-                                        if (process.ExitCode == 0)
-                                        {
-                                            _log.Information("[OBS] FFmpeg stitch successful.");
-                                            System.IO.File.Delete(listFile);
-                                            System.IO.File.Delete(recordFile);
-                                            System.IO.File.Delete(bufferFile);
-                                            RecordingCompleted?.Invoke(currentRecStartMs, outputFile);
-                                        }
-                                        else
-                                        {
-                                            _log.Error($"[OBS] FFmpeg failed with exit code {process.ExitCode}");
-                                            _log.Error($"[OBS] FFmpeg Output: {stdout}");
-                                            _log.Error($"[OBS] FFmpeg Error: {stderr}");
-                                        }
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    _log.Error($"[OBS] Stitching process exception: {ex.Message}");
-                                }
-                            });
-                        }
-                        else
-                        {
-                            RecordingCompleted?.Invoke(_recordingStartTimeMs, latestFile.FullName);
-                        }
+                        _log.Error($"[OBS] FFmpeg failed with exit code {process.ExitCode}");
+                        _log.Error($"[OBS] FFmpeg Output: {stdout}");
+                        _log.Error($"[OBS] FFmpeg Error: {stderr}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                _log.Error($"[OBS] Failed to get recording path: {ex.Message}");
+                _log.Error($"[OBS] Stitching process exception: {ex.Message}");
             }
-        }
+        });
     }
 
     public async Task ConnectAsync(string url, string password)
@@ -426,10 +381,20 @@ public class OBSController : IOBSController
 
         try
         {
-            _obs.StopRecord();
+            string? recordPath = _obs.StopRecord();
             _isRecording = false;
             RecordingStateChanged?.Invoke();
-            _log.Debug("[OBS] StopRecording: succeeded");
+            _log.Debug($"[OBS] StopRecording: succeeded (path={recordPath ?? "<null>"})");
+
+            if (!string.IsNullOrEmpty(recordPath) && !string.IsNullOrEmpty(_lastReplayPath))
+            {
+                StitchRecordings(recordPath, _lastReplayPath);
+                _lastReplayPath = null;
+            }
+            else if (!string.IsNullOrEmpty(recordPath))
+            {
+                RecordingCompleted?.Invoke(_recordingStartTimeMs, NormalizePath(recordPath));
+            }
         }
         catch (Exception ex) when (IsNotRecordingError(ex))
         {
@@ -515,7 +480,7 @@ public class OBSController : IOBSController
 
         _obs.Connected -= OnConnected;
         _obs.Disconnected -= OnDisconnected;
-        _obs.RecordStateChanged -= OnRecordStateChanged;
+        _obs.ReplayBufferSaved -= OnReplayBufferSaved;
 
         if (_obs.IsConnected)
             _obs.Disconnect();
