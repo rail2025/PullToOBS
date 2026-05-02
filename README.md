@@ -3,9 +3,20 @@
 
 ![Obs to ABB icon](https://github.com/rail2025/PullToOBS/blob/master/PullToOBS/OBSToABB.webp?raw=true) 
 
+
 based off pull to obs :
 https://github.com/Miu-B/PullToOBS:
+
+**Note: This is a hard fork of Miu-B's [PullToOBS](https://github.com/Miu-B/PullToOBS) that fundamentally changes the behavior of the plugin to tightly integrate with Aether Blackbox and handle automated video stitching.**
+
 ## Features
+
+* **Aether Blackbox Integration & Automated Stitching**
+  * Communicates directly with Aether Blackbox via IPC to fetch pull metadata (Zone, Boss, Lowest HP%).
+  * Automatically stitches the replay buffer prepull and full encounter recording together into a single file using FFmpeg.
+  * Automatically renames the final stitched video using the pulled metadata (e.g., `YYYY-MM-DD_HH-mm-ss_ZoneName_BossName_HPpc.mp4`).
+ 
+
 
 * **Automatic Recording** -- the whole point
   * Starts OBS recording when combat begins (detected via Dalamud)
@@ -26,6 +37,7 @@ https://github.com/Miu-B/PullToOBS:
   * Draggable when the config window is open
   * Adjustable scale (0.5x - 2.0x)
 
+
 * **Simple Configuration**
   * OBS WebSocket URL and password
   * Optional auto-connect on plugin start
@@ -38,6 +50,7 @@ my changes: built in stiching if ffmpeg is installed, and file renaming with pul
 
 ## Requirements
 
+* [FFmpeg](https://ffmpeg.org/download.html) installed and added to your system PATH (required for automated video stitching).
 * [OBS Studio](https://obsproject.com/) with **WebSocket v5 enabled** (OBS > Tools > WebSocket Server Settings)
 * **Replay Buffer enabled in OBS** (OBS > Settings > Output > Replay Buffer)
 
@@ -47,9 +60,6 @@ my changes: built in stiching if ffmpeg is installed, and file renaming with pul
 
 ## Installation
 
-PullToOBS is available in the official Dalamud plugin repository.
-
-Open the Plugin Installer in-game (`/xlplugins`), search for **PullToOBS**, and install it.
 
 ## How To Use
 
@@ -57,25 +67,10 @@ Open the Plugin Installer in-game (`/xlplugins`), search for **PullToOBS**, and 
 
 1. Enable OBS WebSocket v5 (OBS > Tools > WebSocket Server Settings)
 2. Set up a Replay Buffer in OBS (Settings > Output > Replay Buffer) -- this is what captures the prepull
-3. Open PullToOBS config with `/pulltoobs` or `/pto`
+3. Open OBSToABB config with `/ota`
 4. Enter your OBS WebSocket URL and password, then click Connect
 5. The indicator shows up on screen -- you're good to go
 6. Enter combat and recording starts automatically
-
-### Commands
-
-* `/pulltoobs` or `/pto` - Toggle the configuration window
-* `/pulltoobs obs` or `/pto obs` - Toggle OBS connection
-* `/pulltoobs rec` or `/pto rec` - Toggle standby mode (suppresses automatic recording)
-* `/pulltoobs show` or `/pto show` - Show the indicator
-* `/pulltoobs hide` or `/pto hide` - Hide the indicator
-
-### Adjusting Indicator
-
-1. Open the configuration window with `/pulltoobs`
-2. While the configuration window is open, drag the indicator to your desired position
-3. Use the "Indicator Scale" slider to adjust size
-4. Position is saved automatically when you finish dragging
 
 ## Configuration
 
@@ -87,13 +82,13 @@ All settings are saved automatically, so you can just set things up once and for
 * **Indicator Scale** - Scale multiplier for the indicator (0.5x to 2.0x)
 * **Hide Indicator** - Toggle indicator visibility
 
-## Development
-
 
 ## License
 
 AGPL-3.0-or-later
 
 ## Credits
+
+This project is a hard fork of [PullToOBS](https://github.com/Miu-B/PullToOBS) by Miu-B. All original core OBS WebSocket communication and combat detection logic was created by Miu-B.
 
 Based on [SamplePlugin](https://github.com/goatcorp/SamplePlugin) template by goatcorp
