@@ -1,11 +1,6 @@
-# PullToOBS
-
-![PullToOBS icon](PullToOBS/PullToOBS.png)
-
-If you're anything like me, you've had that moment — the pull goes perfectly, you finally clear, and then you realise OBS was sitting there doing absolutely nothing because you forgot to press Record. Again.
-
-I already had [rec-cue](https://github.com/Miu-B/rec-cue) to show me an in-game indicator when recording was active, which was great for noticing the problem... but not so great at *preventing* it. So I built PullToOBS: a Dalamud plugin that talks to OBS over WebSocket v5, starts recording the moment you enter combat, and saves a replay buffer clip of the prepull for good measure. No more "I forgot to record" sadness.
-
+# OBS to ABB
+based off pull to obs :
+https://github.com/Miu-B/PullToOBS:
 ## Features
 
 * **Automatic Recording** -- the whole point
@@ -35,7 +30,7 @@ I already had [rec-cue](https://github.com/Miu-B/rec-cue) to show me an in-game 
 
 ## Companion Tool
 
-Since PullToOBS produces two files per encounter (a replay buffer clip and the full recording), you'll probably want to stitch them together afterwards. [limitcut](https://github.com/Miu-B/limitcut) does exactly that -- it finds where the two recordings overlap using audio cross-correlation and combines them into a single MP4, no manual trimming required.
+my changes: built in stiching if ffmpeg is installed, and file renaming with pull info, boss hp%, info from aetherblackbox ipc, 
 
 ## Requirements
 
@@ -90,25 +85,6 @@ All settings are saved automatically, so you can just set things up once and for
 
 ## Development
 
-### Building
-
-```bash
-dotnet build --configuration Release
-```
-
-### Running Tests
-
-```bash
-dotnet test
-```
-
-### Loading in Dalamud (Dev)
-
-1. Launch the game and use `/xlsettings` to open Dalamud settings
-2. Go to `Experimental` and add the full path to `PullToOBS.dll` to Dev Plugin Locations
-3. Use `/xlplugins` to open the Plugin Installer
-4. Go to `Dev Tools > Installed Dev Plugins` and enable PullToOBS
-5. Use `/pulltoobs` to open the configuration window
 
 ## License
 
